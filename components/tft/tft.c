@@ -1332,14 +1332,17 @@ exit:
 void getFontCharacters(uint8_t *buf)
 {
     if (tft_cfont.bitmap == 2) {
-    	//For 7 segment font only characters 0,1,2,3,4,5,6,7,8,9, . , - , : , / are available.
+    	//For 7 segment font only characters -,.,%,0,1,2,3,4,5,6,7,8,9,:,F,C,° are available.
 		for (uint8_t n=0; n < 11; n++) {
 			buf[n] = n + 0x30;
 		}
 		buf[11] = '.';
 		buf[12] = '-';
 		buf[13] = '/';
-		buf[14] = '\0';
+		buf[14] = '=';
+		buf[15] = '<';
+		buf[16] = ';';
+		buf[17] = '\0';
     	return;
     }
 
@@ -1757,7 +1760,7 @@ static void rotateChar(uint8_t c, int x, int y, int pos) {
 //----------------------
 static int _7seg_width()
 {
-	return (2 * (2 * tft_cfont.y_size + 1)) + tft_cfont.x_size;
+	return (2 * (2 * tft_cfont.y_size + 1)) + (1.5 * tft_cfont.x_size);
 }
 
 //-----------------------
@@ -1772,8 +1775,17 @@ static int _7seg_height()
 int TFT_getStringWidth(const char *str)
 {
     int strWidth = 0;
+    uint8_t count = 0;
 
-	if (tft_cfont.bitmap == 2) strWidth = ((_7seg_width()+2) * strlen(str)) - 2;	// 7-segment font
+	if (tft_cfont.bitmap == 2) {
+		// 7-segment font
+		strWidth = ((_7seg_width()+2) * strlen(str)) - 2;
+		for (uint8_t i = 0; i < strlen(str); i++) {
+			if ((*(str+i) == 0x3A) || (*(str+i) == 0x2E)) // counting dots in string
+				count++;
+		}
+		strWidth -= (count*((_7seg_width()+2)/2)); // dots half wide
+	}
 	else if (tft_cfont.x_size != 0) strWidth = strlen(str) * tft_cfont.x_size;			// fixed width font
 	else {
 		// calculate the width of the string of proportional characters
@@ -1811,7 +1823,7 @@ void TFT_clearStringRect(int x, int y, const char *str)
 static const uint16_t font_bcd[] = {
   0x200, // 0010 0000 0000  // -
   0x080, // 0000 1000 0000  // .
-  0x06C, // 0100 0110 1100  // /, degree
+  0x400, // 0100 0000 0000  // / -> %
   0x05f, // 0000 0101 1111, // 0
   0x005, // 0000 0000 0101, // 1
   0x076, // 0000 0111 0110, // 2
@@ -1819,10 +1831,14 @@ static const uint16_t font_bcd[] = {
   0x02d, // 0000 0010 1101, // 4
   0x079, // 0000 0111 1001, // 5
   0x07b, // 0000 0111 1011, // 6
-  0x045, // 0000 0100 0101, // 7
+//0x045, // 0000 0100 0101, // 7
+  0x04D, // 0000 0100 1101, // 7
   0x07f, // 0000 0111 1111, // 8
   0x07d, // 0000 0111 1101  // 9
-  0x900  // 1001 0000 0000  // :
+  0x100, // 0001 0000 0000  // :
+  0x06a, // 0000 0110 1010  // ; -> F
+  0x05a, // 0000 0101 1010  // < -> C
+  0x06c  // 0000 0110 1100  // = -> degree
 };
 
 //-----------------------------------------------------------------------------------------------
@@ -1851,12 +1867,13 @@ static void barHor(int16_t x, int16_t y, int16_t w, int16_t l, color_t color, co
 
 //--------------------------------------------------------------------------------------------
 static void _draw7seg(int16_t x, int16_t y, int8_t num, int16_t w, int16_t l, color_t color) {
-  /* TODO: clipping */
-  if (num < 0x2D || num > 0x3A) return;
+
+  if (num < 0x2D || num > 0x3D) return;
 
   int16_t c = font_bcd[num-0x2D];
   int16_t d = 2*w+l+1;
 
+/*
   // === Clear unused segments ===
   if (!(c & 0x001)) barVert(x+d, y+d, w, l, tft_bg, tft_bg);
   if (!(c & 0x002)) barVert(x,   y+d, w, l, tft_bg, tft_bg);
@@ -1868,55 +1885,76 @@ static void _draw7seg(int16_t x, int16_t y, int8_t num, int16_t w, int16_t l, co
 
   if (!(c & 0x080)) {
     // low point
-    _fillRect(x+(d/2), y+2*d, 2*w+1, 2*w+1, tft_bg);
-    if (tft_cfont.offset) _drawRect(x+(d/2), y+2*d, 2*w+1, 2*w+1, tft_bg);
+    _fillRect(x+w/2, y+2*d, 2*w+1, 2*w+1, tft_bg);
+    if (tft_cfont.offset) _drawRect(x+w/2, y+2*d, 2*w+1, 2*w+1, tft_bg);
   }
   if (!(c & 0x100)) {
     // down middle point
-    _fillRect(x+(d/2), y+d+2*w+1, 2*w+1, l/2, tft_bg);
-    if (tft_cfont.offset) _drawRect(x+(d/2), y+d+2*w+1, 2*w+1, l/2, tft_bg);
-  }
-  if (!(c & 0x800)) {
+    _fillRect(x+w/2, y+d+2*w+1, 2*w+1, 2*w+1, tft_bg);
+    if (tft_cfont.offset) _drawRect(x+w/2, y+d+2*w+1, 2*w+1, 2*w+1, tft_bg);
 	// up middle point
-    _fillRect(x+(d/2), y+(2*w)+1+(l/2), 2*w+1, l/2, tft_bg);
-    if (tft_cfont.offset) _drawRect(x+(d/2), y+(2*w)+1+(l/2), 2*w+1, l/2, tft_bg);
+    _fillRect(x+w/2, y+(2*w)+1+(l/2), 2*w+1, 2*w+1, tft_bg);
+    if (tft_cfont.offset) _drawRect(x+w/2, y+2*w+1+l/2, 2*w+1, 2*w+1, tft_bg);
   }
   if (!(c & 0x200)) {
     // middle, minus
     _fillRect(x+2*w+1, y+d, l, 2*w+1, tft_bg);
     if (tft_cfont.offset) _drawRect(x+2*w+1, y+d, l, 2*w+1, tft_bg);
   }
-
+  if (!(c & 0x400)) {
+    // percent
+	    _fillRect(x, y+2*w, 2*w+1, 2*w+1, tft_bg);
+	    _fillRect(x+d, y+2*d-2*w, 2*w+1, 2*w+1, tft_bg);
+	    for (uint8_t i=0; i<(2*(w+tft_cfont.offset)+1); i++)
+		    _drawLine(x+d+2*w, y+i+2*w, x, y+2*d-2*w+i, tft_bg);
+	    if (tft_cfont.offset) {
+	    	_drawRect(x, y, 2*w+1, 2*w+1, tft_bg);
+	    	_drawRect(x+d, y+2*d, 2*w+1, 2*w+1, tft_bg);
+	    }
+  }
   // === Draw used segments ===
   if (c & 0x001) barVert(x+d, y+d, w, l, color, tft_cfont.color);	// down right
   if (c & 0x002) barVert(x,   y+d, w, l, color, tft_cfont.color);	// down left
-  if (c & 0x004) barVert(x+d, y, w, l, color, tft_cfont.color);		// up right
-  if (c & 0x008) barVert(x,   y, w, l, color, tft_cfont.color);		// up left
+  if (c & 0x004) barVert(x+d, y, w, l, color, tft_cfont.color);	// up right
+  if (c & 0x008) barVert(x,   y, w, l, color, tft_cfont.color);	// up left
   if (c & 0x010) barHor(x, y+2*d, w, l, color, tft_cfont.color);	// down
-  if (c & 0x020) barHor(x, y+d, w, l, color, tft_cfont.color);		// middle
+  if (c & 0x020) barHor(x, y+d, w, l, color, tft_cfont.color);	// middle
   if (c & 0x040) barHor(x, y, w, l, color, tft_cfont.color);		// up
-
-  if (c & 0x080) {
-    // low point
-    _fillRect(x+(d/2), y+2*d, 2*w+1, 2*w+1, color);
-    if (tft_cfont.offset) _drawRect(x+(d/2), y+2*d, 2*w+1, 2*w+1, tft_cfont.color);
-  }
-  if (c & 0x100) {
-    // down middle point
-    _fillRect(x+(d/2), y+d+2*w+1, 2*w+1, l/2, color);
-    if (tft_cfont.offset) _drawRect(x+(d/2), y+d+2*w+1, 2*w+1, l/2, tft_cfont.color);
-  }
-  if (c & 0x800) {
+*/
+  if (c & 0x080) {			// low point
+    _fillRect(x+w/2, y+2*d, 2*w+1, 2*w+1, color);
+    if (tft_cfont.offset) _drawRect(x+w/2, y+2*d, 2*w+1, 2*w+1, tft_cfont.color);
+  } else if (c & 0x100) {	// :
+	// down middle point
+    _fillRect(x+w/2, y+d+2*w+1, 2*w+1, 2*w+1, color);
+    if (tft_cfont.offset) _drawRect(x+w/2, y+d+2*w+1, 2*w+1, 2*w+1, tft_cfont.color);
 	// up middle point
-    _fillRect(x+(d/2), y+(2*w)+1+(l/2), 2*w+1, l/2, color);
-    if (tft_cfont.offset) _drawRect(x+(d/2), y+(2*w)+1+(l/2), 2*w+1, l/2, tft_cfont.color);
-  }
-  if (c & 0x200) {
-    // middle, minus
+    _fillRect(x+w/2, y+(2*w)+1+(l/2), 2*w+1, 2*w+1, color);
+    if (tft_cfont.offset) _drawRect(x+w/2, y+2*w+1+l/2, 2*w+1, 2*w+1, tft_cfont.color);
+  } else if (c & 0x200) {	// middle, minus
     _fillRect(x+2*w+1, y+d, l, 2*w+1, color);
     if (tft_cfont.offset) _drawRect(x+2*w+1, y+d, l, 2*w+1, tft_cfont.color);
+  } else if (c & 0x400) {	// percent
+	_fillRect(x+2*w, y+2*w, 2*w+1, 2*w+1, color);
+	_fillRect(x+d, y+2*d-2*w, 2*w+1, 2*w+1, color);
+	for (uint8_t i=1; i<(2*w+3); i++)
+	  _drawLine(x+d+2*w, y+i+2*w, x+2*w, y+2*d-2*w+i, color);
+    if (tft_cfont.offset) {
+  	  _drawLine(x+d+2*w, y+2*w, x+2*w, y+2*d-2*w, tft_cfont.color);
+      _drawRect(x+2*w, y+2*w, 2*w+1, 2*w+1, tft_cfont.color);
+      _drawRect(x+d, y+2*d-2*w, 2*w+1, 2*w+1, tft_cfont.color);
+    }
+  } else {
+    barVert(x+d, y+d, w, l, (c & 0x001) ? color : tft_bg, (c & 0x001) ? tft_cfont.color : tft_bg);	// down right
+	barVert(x,   y+d, w, l, (c & 0x002) ? color : tft_bg, (c & 0x002) ? tft_cfont.color : tft_bg);	// down left
+	barVert(x+d, y, w, l, (c & 0x004) ? color : tft_bg, (c & 0x004) ? tft_cfont.color : tft_bg);	// up right
+	barVert(x,   y, w, l, (c & 0x008) ? color : tft_bg, (c & 0x008) ? tft_cfont.color : tft_bg);	// up left
+	barHor(x, y+2*d, w, l, (c & 0x010) ? color : tft_bg, (c & 0x010) ? tft_cfont.color : tft_bg);	// down
+	barHor(x, y+d, w, l, (c & 0x020) ? color : tft_bg, (c & 0x020) ? tft_cfont.color : tft_bg);	// middle
+	barHor(x, y, w, l, (c & 0x040) ? color : tft_bg, (c & 0x040) ? tft_cfont.color : tft_bg);		// up
   }
 }
+
 //==============================================================================
 
 //============================================
@@ -2030,7 +2068,10 @@ void TFT_print(const char *st, int x, int y) {
 				else if (tft_cfont.bitmap == 2) {
 					// == 7-segment font ==
 					_draw7seg(tft_x, tft_y, ch, tft_cfont.y_size, tft_cfont.x_size, tft_fg);
-					tft_x += (tmpw + 2);
+					if ((ch == 0x3A) || (ch == 0x2E)) // dots = half wide
+						tft_x += ((tmpw + 2) / 2);
+					else
+						tft_x += (tmpw + 2);
 				}
 			}
 		}
@@ -2947,4 +2988,3 @@ int TFT_read_touch(int *x, int* y, uint8_t raw)
 	return 1;
     #endif
 }
-
